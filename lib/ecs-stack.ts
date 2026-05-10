@@ -80,7 +80,7 @@ export class EcsStack extends cdk.Stack {
       // In production: port 443 with ACM certificate
     });
 
-    // Fargate Service
+    // Fargate Service — rolling deploy with circuit breaker
     this.service = new ecs.FargateService(this, 'LlmService', {
       cluster,
       taskDefinition: taskDef,
@@ -91,6 +91,21 @@ export class EcsStack extends cdk.Stack {
       circuitBreaker: { rollback: true },
       // Interview: "Circuit breaker auto-rolls back if new tasks fail health checks,
       // preventing bad deploys from taking down the service."
+
+      // Rolling deploy strategy:
+      // 1. ECS starts 2 NEW tasks (maxHealthy=200% → 4 total)
+      // 2. New tasks pass health check (startPeriod=120s)
+      // 3. ALB registers new tasks, drains old (deregDelay=30s)
+      // 4. Old tasks killed → back to 2 tasks
+      // Timeline: ~3-4 minutes for zero-downtime deploy
+      minHealthyPercent: 100,  // Never go below desired count during deploy
+      maxHealthyPercent: 200,  // Allow double capacity during deploy
+      deploymentController: {
+        type: ecs.DeploymentControllerType.ECS,
+      },
+      // Interview: "minHealthyPercent=100 ensures we never serve fewer than
+      // desired capacity during deploys. maxHealthyPercent=200 allows ECS to
+      // spin up replacement tasks before draining old ones — true zero-downtime."
     });
 
     // Register with ALB
