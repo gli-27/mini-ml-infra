@@ -4,15 +4,17 @@ import * as cdk from 'aws-cdk-lib';
 import { VpcStack } from '../lib/vpc-stack';
 import { EcrStack } from '../lib/ecr-stack';
 import { EcsStack } from '../lib/ecs-stack';
+import { MonitoringStack } from '../lib/monitoring-stack';
 
 /**
  * CDK App — infrastructure for the mini-ml-agent platform.
  *
  * Stack dependency chain:
- *   VpcStack → EcsStack
- *   EcrStack → EcsStack
+ *   VpcStack ─────┐
+ *                  ├──▶ EcsStack ──▶ MonitoringStack
+ *   EcrStack ─────┘
  *
- * Deploy order: VPC + ECR first (no dependencies), then ECS.
+ * Deploy: `cdk deploy --all --require-approval broadening`
  */
 const app = new cdk.App();
 
@@ -22,14 +24,26 @@ const env = {
 };
 
 // Shared networking
-const vpcStack = new VpcStack(app, 'MiniMlVpcStack', { env });
+const vpcStack = new VpcStack(app, 'MiniLlm-Vpc', { env });
 
 // Container registries
-const ecrStack = new EcrStack(app, 'MiniMlEcrStack', { env });
+const ecrStack = new EcrStack(app, 'MiniLlm-Ecr', { env });
 
 // LLM Serving — ECS Fargate + ALB
-new EcsStack(app, 'MiniLlmEcsStack', {
+const ecsStack = new EcsStack(app, 'MiniLlm-Ecs', {
   env,
   vpc: vpcStack.vpc,
   repository: ecrStack.llmServingRepo,
 });
+
+// Monitoring — CloudWatch dashboards + alarms
+const monitoringStack = new MonitoringStack(app, 'MiniLlm-Monitoring', {
+  env,
+  service: ecsStack.service,
+  alb: ecsStack.alb,
+});
+
+// Explicit dependency declarations
+ecsStack.addDependency(vpcStack);
+ecsStack.addDependency(ecrStack);
+monitoringStack.addDependency(ecsStack);
