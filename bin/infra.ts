@@ -1,20 +1,35 @@
 #!/usr/bin/env node
-import * as cdk from 'aws-cdk-lib/core';
-import { InfraStack } from '../lib/infra-stack';
+import 'source-map-support/register';
+import * as cdk from 'aws-cdk-lib';
+import { VpcStack } from '../lib/vpc-stack';
+import { EcrStack } from '../lib/ecr-stack';
+import { EcsStack } from '../lib/ecs-stack';
 
+/**
+ * CDK App — infrastructure for the mini-ml-agent platform.
+ *
+ * Stack dependency chain:
+ *   VpcStack → EcsStack
+ *   EcrStack → EcsStack
+ *
+ * Deploy order: VPC + ECR first (no dependencies), then ECS.
+ */
 const app = new cdk.App();
-new InfraStack(app, 'InfraStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+const env = {
+  account: process.env.CDK_DEFAULT_ACCOUNT,
+  region: process.env.CDK_DEFAULT_REGION || 'us-west-2',
+};
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
+// Shared networking
+const vpcStack = new VpcStack(app, 'MiniMlVpcStack', { env });
 
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
+// Container registries
+const ecrStack = new EcrStack(app, 'MiniMlEcrStack', { env });
+
+// LLM Serving — ECS Fargate + ALB
+new EcsStack(app, 'MiniLlmEcsStack', {
+  env,
+  vpc: vpcStack.vpc,
+  repository: ecrStack.llmServingRepo,
 });
